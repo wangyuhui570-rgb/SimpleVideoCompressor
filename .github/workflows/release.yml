@@ -37,9 +37,17 @@ jobs:
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "version=$version`n")
           [System.IO.File]::AppendAllText($env:GITHUB_ENV, "tag=$tag`n")
 
-      - name: Build portable zip
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build portable zip (framework-dependent, no .NET 8 bundled)
         shell: pwsh
         run: ./scripts/build-portable.ps1 -Configuration Release
+
+      - name: Build Windows Setup exe (auto-downloads .NET 8 if missing)
+        shell: pwsh
+        run: ./scripts/build-installer.ps1 -Configuration Release
 
       - name: Build incremental patch from previous release
         continue-on-error: true
@@ -82,7 +90,12 @@ jobs:
           $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $size = (Get-Item -LiteralPath $zipPath).Length
 
-          $notes = "极简视频压缩工具 v$env:version`r`n`r`nSHA256: $sha`r`nSize: $size bytes`r`n"
+          $setupName = "SimpleVideoCompressor-Setup-v$env:version.exe"
+          $setupPath = Join-Path "artifacts" $setupName
+          $setupSha = (Get-FileHash -LiteralPath $setupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $setupSize = (Get-Item -LiteralPath $setupPath).Length
+
+          $notes = "极简视频压缩工具 v$env:version`r`n`r`nSHA256: $sha`r`nSize: $size bytes`r`nSetupSHA256: $setupSha`r`nSetupSize: $setupSize bytes`r`n"
           if ($env:patchName -and (Test-Path -LiteralPath (Join-Path "artifacts" $env:patchName))) {
             $patchPath = Join-Path "artifacts" $env:patchName
             $patchSha = (Get-FileHash -LiteralPath $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -96,7 +109,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $assets = @((Join-Path "artifacts" "SimpleVideoCompressor-Portable-$env:version.zip"))
+          $assets = @(
+            (Join-Path "artifacts" "SimpleVideoCompressor-Setup-v$env:version.exe"),
+            (Join-Path "artifacts" "SimpleVideoCompressor-Portable-$env:version.zip")
+          )
           if ($env:patchName -and (Test-Path -LiteralPath (Join-Path "artifacts" $env:patchName))) {
             $assets += (Join-Path "artifacts" $env:patchName)
           }

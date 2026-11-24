@@ -18,10 +18,11 @@ $zipPath = Join-Path $artifactsDir "SimpleVideoCompressor-Portable-$version.zip"
 if (Test-Path -LiteralPath $stageDir) { Remove-Item -LiteralPath $stageDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $appDir | Out-Null
 
+# Framework-dependent: does NOT bundle .NET 8 (~74 MB), keeping the package ~200-300 KB.
 dotnet publish $csproj `
     -c $Configuration `
     -r win-x64 `
-    --self-contained true `
+    --self-contained false `
     -p:PublishSingleFile=false `
     -p:DebugType=none `
     -p:DebugSymbols=false `
@@ -39,4 +40,4 @@ start "" "%~dp0app\SimpleVideoCompressor.exe"
 
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
-"Built $zipPath"
+"Built $zipPath ($((Get-Item -LiteralPath $zipPath).Length) bytes)"
