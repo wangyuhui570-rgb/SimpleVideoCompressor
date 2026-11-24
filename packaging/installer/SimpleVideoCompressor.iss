@@ -94,22 +94,22 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
-  PsCmd: String;
+  RuntimeExe: String;
 begin
   if CurStep = ssPostInstall then
   begin
     if not HasDotNet8DesktopRuntime() then
     begin
       WizardForm.StatusLabel.Caption := '未检测到 .NET 8 桌面运行环境，正在自动下载并安装（仅首次需要）...';
-      PsCmd := '-NoProfile -ExecutionPolicy Bypass -Command "' +
-        '$ErrorActionPreference=''Stop''; ' +
-        '$out=Join-Path $env:TEMP ''windowsdesktop-runtime-8-win-x64.exe''; ' +
-        'Invoke-WebRequest -Uri ''https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe'' -OutFile $out -UseBasicParsing; ' +
-        'Start-Process -FilePath $out -ArgumentList ''/install'',''/passive'',''/norestart'' -Wait; ' +
-        'Remove-Item $out -Force -ErrorAction SilentlyContinue"';
-      if not Exec('powershell.exe', PsCmd, '', SW_SHOW, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
-      begin
-        MsgBox('自动安装 .NET 8 运行环境失败（错误码：' + IntToStr(ResultCode) + '）。请稍后手动下载安装 .NET 8 Desktop Runtime (x64) 后再打开软件。', mbError, MB_OK);
+      RuntimeExe := ExpandConstant('{tmp}\windowsdesktop-runtime-8-win-x64.exe');
+      try
+        DownloadTemporaryFile('https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe', 'windowsdesktop-runtime-8-win-x64.exe', '', nil);
+        if not Exec(RuntimeExe, '/install /passive /norestart', '', SW_SHOW, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+        begin
+          MsgBox('自动安装 .NET 8 运行环境失败（错误码：' + IntToStr(ResultCode) + '）。请稍后手动安装 .NET 8 Desktop Runtime (x64) 后再打开软件。', mbError, MB_OK);
+        end;
+      except
+        MsgBox('自动下载 .NET 8 运行环境失败：' + GetExceptionMessage() + #13#10 + '请稍后手动安装 .NET 8 Desktop Runtime (x64) 后再打开软件。', mbError, MB_OK);
       end;
     end;
   end;
