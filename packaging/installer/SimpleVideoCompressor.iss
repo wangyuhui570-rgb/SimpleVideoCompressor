@@ -30,6 +30,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\..\src\SimpleVideoCompressor\Assets\app.ico
 UninstallDisplayIcon={app}\app\{#MyAppExeName}
 OutputDir={#MyOutputDir}
 OutputBaseFilename={#MyOutputBaseFilename}

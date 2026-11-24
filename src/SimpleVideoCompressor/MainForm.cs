@@ -49,6 +49,7 @@ public sealed class MainForm : Form
         MaximizeBox = false;
         AllowDrop = true;
         Font = new Font("Microsoft YaHei UI", 9.5f);
+        Icon = LoadAppIcon();
 
         var lblTitle = new Label
         {
@@ -179,6 +180,21 @@ public sealed class MainForm : Form
         };
 
         Shown += async (_, _) => await CheckUpdateSilentlyAsync();
+    }
+
+    private static Icon? LoadAppIcon()
+    {
+        try
+        {
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("SimpleVideoCompressor.Assets.app.ico");
+            if (stream is not null)
+                return new Icon(stream);
+            return Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void AddPresetButton(string text, int x, int width, decimal value)
