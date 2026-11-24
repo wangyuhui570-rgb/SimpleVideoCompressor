@@ -59,15 +59,40 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\app\{#MyAppExeName}"; Tasks
 Filename: "{app}\app\{#MyAppExeName}"; Description: "立即启动 {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function HasDotNet8InDir(const BaseDir: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if FindFirst(BaseDir + '\8.*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+        begin
+          Result := True;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 function HasDotNet8DesktopRuntime(): Boolean;
 var
   Names: TArrayOfString;
   I: Integer;
   RegKey: String;
 begin
-  Result := False;
+  Result :=
+    HasDotNet8InDir(ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.WindowsDesktop.App')) or
+    HasDotNet8InDir(ExpandConstant('{localappdata}\Microsoft\dotnet\shared\Microsoft.WindowsDesktop.App'));
+  if Result then Exit;
+
   RegKey := 'SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App';
-  if RegGetValueNames(HKLM, RegKey, Names) then
+  if RegGetValueNames(HKLM64, RegKey, Names) then
   begin
     for I := 0 to GetArrayLength(Names) - 1 do
     begin
@@ -78,7 +103,7 @@ begin
       end;
     end;
   end;
-  if RegGetValueNames(HKLM64, RegKey, Names) then
+  if RegGetValueNames(HKLM, RegKey, Names) then
   begin
     for I := 0 to GetArrayLength(Names) - 1 do
     begin
@@ -109,7 +134,10 @@ begin
           MsgBox('自动安装 .NET 8 运行环境失败（错误码：' + IntToStr(ResultCode) + '）。请稍后手动安装 .NET 8 Desktop Runtime (x64) 后再打开软件。', mbError, MB_OK);
         end;
       except
-        MsgBox('自动下载 .NET 8 运行环境失败：' + GetExceptionMessage() + #13#10 + '请稍后手动安装 .NET 8 Desktop Runtime (x64) 后再打开软件。', mbError, MB_OK);
+        if MsgBox('自动下载 .NET 8 运行环境失败，是否用浏览器打开微软官方下载链接？', mbConfirmation, MB_YESNO) = IDYES then
+        begin
+          ShellExec('open', 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+        end;
       end;
     end;
   end;
