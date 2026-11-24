@@ -56,7 +56,7 @@ try {
     }
 
     $manifestEntry = $target.CreateEntry("patch-manifest.json", [System.IO.Compression.CompressionLevel]::Optimal)
-    $writer = New-Object System.Text.StreamWriter($manifestEntry.Open(), (New-Object System.Text.UTF8Encoding($false)))
+    $writer = New-Object System.IO.StreamWriter($manifestEntry.Open(), (New-Object System.Text.UTF8Encoding($false)))
     try { $writer.Write($manifest) } finally { $writer.Dispose() }
 } finally {
     $target.Dispose()

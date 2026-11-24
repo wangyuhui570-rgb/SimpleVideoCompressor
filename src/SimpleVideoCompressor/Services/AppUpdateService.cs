@@ -209,26 +209,46 @@ internal sealed class AppUpdateService
         string exeToLaunch = Path.Combine(installedApp, "SimpleVideoCompressor.exe");
         int pid = Environment.ProcessId;
 
+        string logPath = Path.Combine(workDir, "update.log");
         string ps = $@"
 $ErrorActionPreference = 'Stop'
+$log = '{logPath.Replace("'", "''")}'
+function Log([string]$msg) {{ Add-Content -LiteralPath $log -Value ""$(Get-Date -Format 'HH:mm:ss') $msg"" -Encoding UTF8 }}
+Log 'Updater started.'
 $pidToWait = {pid}
-for ($i = 0; $i -lt 60; $i++) {{
+for ($i = 0; $i -lt 100; $i++) {{
     if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) {{ break }}
     Start-Sleep -Milliseconds 300
 }}
+Start-Sleep -Milliseconds 500
 $installed = '{installedApp.Replace("'", "''")}'
 $staged = '{stagedApp.Replace("'", "''")}'
 $backup = '{backupApp.Replace("'", "''")}'
 $exe = '{exeToLaunch.Replace("'", "''")}'
 
 if (Test-Path -LiteralPath $backup) {{ Remove-Item -LiteralPath $backup -Recurse -Force }}
+$moved = $false
+for ($try = 1; $try -le 6; $try++) {{
+    try {{
+        Move-Item -LiteralPath $installed -Destination $backup
+        $moved = $true
+        break
+    }} catch {{
+        Log ""Move attempt $try failed: $($_.Exception.Message)""
+        Start-Sleep -Milliseconds 500
+    }}
+}}
+if (-not $moved) {{ throw 'Failed to move installed app folder.' }}
+
 try {{
-    Move-Item -LiteralPath $installed -Destination $backup
     Move-Item -LiteralPath $staged -Destination $installed
-    Start-Process -FilePath $exe
+    Log 'Swapped staged app into place. Launching...'
+    Start-Process -FilePath $exe -WorkingDirectory $installed
     Start-Sleep -Seconds 2
     if (Test-Path -LiteralPath $backup) {{ Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }}
+    Log 'Update succeeded.'
 }} catch {{
+    Log ""Swap failed: $($_.Exception.Message)""
     if (-not (Test-Path -LiteralPath $installed) -and (Test-Path -LiteralPath $backup)) {{
         Move-Item -LiteralPath $backup -Destination $installed -Force
     }}
@@ -241,8 +261,9 @@ try {{
         {
             FileName = "powershell.exe",
             Arguments = $"-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{scriptPath}\"",
-            UseShellExecute = false,
-            CreateNoWindow = true
+            WorkingDirectory = workDir,
+            UseShellExecute = true,
+            WindowStyle = ProcessWindowStyle.Hidden
         });
 
         return true;
