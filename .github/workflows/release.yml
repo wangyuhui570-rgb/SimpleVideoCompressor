@@ -1,0 +1,103 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Validate tag matches csproj Version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+)$') {
+            throw "Release tag must be vX.Y.Z, got '$tag'"
+          }
+          $tagVersion = $Matches[1]
+          [xml]$projectXml = Get-Content -Path "src/SimpleVideoCompressor/SimpleVideoCompressor.csproj"
+          $versionNode = $projectXml.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1
+          $version = if ($versionNode) { $versionNode.Version.Trim() } else { "" }
+          if ($version -ne $tagVersion) {
+            throw "Tag v$tagVersion does not match csproj Version '$version'"
+          }
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "version=$version`n")
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "tag=$tag`n")
+
+      - name: Build portable zip
+        shell: pwsh
+        run: ./scripts/build-portable.ps1 -Configuration Release
+
+      - name: Build incremental patch from previous release
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $current = [version]$env:version
+          $previous = gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isDraft,isPrerelease |
+            ConvertFrom-Json |
+            Where-Object { -not $_.isDraft -and -not $_.isPrerelease -and $_.tagName -match '^v(\d+\.\d+\.\d+)$' } |
+            ForEach-Object { [pscustomobject]@{ Tag = $_.tagName; Version = [version]($_.tagName.Substring(1)) } } |
+            Where-Object { $_.Version -lt $current } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+
+          if ($null -eq $previous) {
+            Write-Warning "No previous release found; skipping incremental patch."
+            exit 0
+          }
+
+          $fromVersion = $previous.Version.ToString(3)
+          $prevDir = Join-Path $env:RUNNER_TEMP "prev-release"
+          New-Item -ItemType Directory -Force -Path $prevDir | Out-Null
+          $prevZipName = "SimpleVideoCompressor-Portable-$fromVersion.zip"
+          gh release download $previous.Tag --repo "${{ github.repository }}" --pattern $prevZipName --dir $prevDir --clobber
+          $prevZip = Join-Path $prevDir $prevZipName
+          if (-not (Test-Path -LiteralPath $prevZip)) { exit 0 }
+
+          $patchName = "SimpleVideoCompressor-Patch-$fromVersion-to-$env:version.zip"
+          $patchPath = Join-Path "artifacts" $patchName
+          ./scripts/build-update-patch.ps1 -PreviousZip $prevZip -CurrentZip (Join-Path "artifacts" "SimpleVideoCompressor-Portable-$env:version.zip") -FromVersion $fromVersion -ToVersion $env:version -OutputPath $patchPath
+          [System.IO.File]::AppendAllText($env:GITHUB_ENV, "patchFrom=$fromVersion`npatchName=$patchName`n")
+
+      - name: Prepare release notes
+        shell: pwsh
+        run: |
+          $zipName = "SimpleVideoCompressor-Portable-$env:version.zip"
+          $zipPath = Join-Path "artifacts" $zipName
+          $sha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item -LiteralPath $zipPath).Length
+
+          $notes = "极简视频压缩工具 v$env:version`r`n`r`nSHA256: $sha`r`nSize: $size bytes`r`n"
+          if ($env:patchName -and (Test-Path -LiteralPath (Join-Path "artifacts" $env:patchName))) {
+            $patchPath = Join-Path "artifacts" $env:patchName
+            $patchSha = (Get-FileHash -LiteralPath $patchPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            $patchSize = (Get-Item -LiteralPath $patchPath).Length
+            $notes += "`r`nPatchFrom: $env:patchFrom`r`nPatchSHA256: $patchSha`r`nPatchSize: $patchSize bytes`r`n"
+          }
+          [System.IO.File]::WriteAllText((Join-Path "artifacts" "release-notes.md"), $notes, [System.Text.UTF8Encoding]::new($false))
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @((Join-Path "artifacts" "SimpleVideoCompressor-Portable-$env:version.zip"))
+          if ($env:patchName -and (Test-Path -LiteralPath (Join-Path "artifacts" $env:patchName))) {
+            $assets += (Join-Path "artifacts" $env:patchName)
+          }
+          gh release create $env:tag @assets --repo "${{ github.repository }}" --title "v$env:version" --notes-file (Join-Path "artifacts" "release-notes.md")
